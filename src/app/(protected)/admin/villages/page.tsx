@@ -35,11 +35,12 @@ export default function AdminVillagesPage() {
     if (ve) { setError(ve.message); setLoading(false); return; }
     const { data: ls } = await supabase.from("labs").select("*").order("name");
     const labsByVillage = (ls ?? []).reduce((acc: Record<string, Lab[]>, l) => {
+      if (!l) return acc;
       if (!acc[l.village_id]) acc[l.village_id] = [];
       acc[l.village_id].push(l);
       return acc;
     }, {});
-    setVillages((vs ?? []).map(v => ({ ...v, labs: labsByVillage[v.id] ?? [] })));
+    setVillages((vs ?? []).filter(Boolean).map(v => ({ ...v, labs: labsByVillage[v?.id] ?? [] })));
     setLoading(false);
   }, []);
 
@@ -57,7 +58,7 @@ export default function AdminVillagesPage() {
   async function handleCreateLab(e: React.FormEvent) {
     e.preventDefault(); setSaving(true);
     const supabase = createClient();
-    const { error: err } = await supabase.from("labs").insert({ name: lForm.name, code: lForm.code.toUpperCase(), village_id: selectedVillage!.id, location: lForm.location || null });
+    const { error: err } = await supabase.from("labs").insert({ name: lForm.name, code: lForm.code.toUpperCase(), village_id: selectedVillage?.id as string, location: lForm.location || null });
     if (err) toast("error", err.message);
     else { toast("success", "Lab created!"); setLabModal(false); setLForm({ name: "", code: "", location: "" }); load(); }
     setSaving(false);
@@ -83,11 +84,11 @@ export default function AdminVillagesPage() {
       {error && <ErrorBanner message={error} />}
       <div className="space-y-3">
         {villages.map(v => (
-          <Card key={v.id}>
+          <Card key={v?.id || Math.random()}>
             <div className="flex items-center justify-between mb-3">
               <div>
-                <p className="font-semibold text-sm" style={{ color: "var(--color-text-primary)" }}>{v.name}
-                  <span className="ml-2 text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: "var(--color-brand-100)", color: "var(--color-brand-700)" }}>{v.code}</span>
+                <p className="font-semibold text-sm" style={{ color: "var(--color-text-primary)" }}>{v?.name}
+                  <span className="ml-2 text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: "var(--color-brand-100)", color: "var(--color-brand-700)" }}>{v?.code}</span>
                 </p>
                 {v.description && <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>{v.description}</p>}
               </div>
@@ -96,12 +97,12 @@ export default function AdminVillagesPage() {
               </Button>
             </div>
             <div className="space-y-1.5">
-              {(v.labs ?? []).length === 0 ? (
+              {(v?.labs ?? []).length === 0 ? (
                 <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>No labs yet.</p>
-              ) : (v.labs ?? []).map(l => (
-                <div key={l.id} className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg" style={{ background: "var(--color-surface-alt)" }}>
+              ) : (v?.labs ?? []).map(l => (
+                <div key={l?.id || Math.random()} className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg" style={{ background: "var(--color-surface-alt)" }}>
                   <ChevronRight size={12} style={{ color: "var(--color-text-muted)" }} />
-                  <span style={{ color: "var(--color-text-primary)" }}>{l.name}</span>
+                  <span style={{ color: "var(--color-text-primary)" }}>{l?.name}</span>
                   <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>{l.code}</span>
                   {l.location && <span className="text-xs ml-auto" style={{ color: "var(--color-text-muted)" }}>{l.location}</span>}
                 </div>
