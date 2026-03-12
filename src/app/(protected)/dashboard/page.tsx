@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import {
   ShoppingCart, CheckSquare, Boxes, FlaskConical,
-  TrendingUp, TrendingDown, Minus, ArrowRight
+  TrendingUp, TrendingDown, Minus, ArrowRight, AlertTriangle
 } from "lucide-react";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { format } from "date-fns";
@@ -20,11 +20,32 @@ interface KpiData {
   peroxideWarnings: number;
 }
 
+interface LowStockLot {
+  id: string;
+  lot_number: string;
+  remaining_quantity: number;
+  received_quantity: number;
+  unit: string;
+  item_master: { name: string; min_stock_level: number | null } | null;
+}
+
+interface PeroxideAlert {
+  id: string;
+  lot_number: string;
+  remaining_quantity: number;
+  unit: string;
+  status: string;
+  item_master: { name: string } | null;
+  villages: { name: string } | null;
+}
+
 export default function DashboardPage() {
   const { villageId } = useVillageScope();
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [recentTx, setRecentTx] = useState<any[]>([]);
+  const [lowStockLots, setLowStockLots] = useState<LowStockLot[]>([]);
+  const [peroxideAlerts, setPeroxideAlerts] = useState<PeroxideAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,12 +66,30 @@ export default function DashboardPage() {
         txQuery = txQuery.eq("village_id", villageId);
       }
 
-      const [ordersRes, pendingRes, lotsRes, peroxideRes, txRes] = await Promise.all([
+      // Low stock: lots where remaining < min_stock_level
+      let lowStockQ = supabase
+        .from("item_lots")
+        .select("id, lot_number, remaining_quantity, received_quantity, unit, item_master(name, min_stock_level)")
+        .eq("status", "active")
+        .order("remaining_quantity");
+      if (villageId) lowStockQ = lowStockQ.eq("village_id", villageId);
+
+      // Peroxide alerts: peroxide lots in warning/quarantine status
+      let peroxideAlertsQ = supabase
+        .from("item_lots")
+        .select("id, lot_number, remaining_quantity, unit, status, item_master(name), villages(name)")
+        .eq("is_peroxide", true)
+        .in("status", ["active", "quarantined"]);
+      if (villageId) peroxideAlertsQ = peroxideAlertsQ.eq("village_id", villageId);
+
+      const [ordersRes, pendingRes, lotsRes, peroxideRes, txRes, lowStockRes, peroxideAlertsRes] = await Promise.all([
         poQuery,
         pendingQuery,
         lotQuery,
         peroxideQuery,
         txQuery,
+        lowStockQ,
+        peroxideAlertsQ,
       ]);
 
       setKpi({
@@ -61,6 +100,11 @@ export default function DashboardPage() {
       });
       setPendingOrders(pendingRes.data ?? []);
       setRecentTx(txRes.data ?? []);
+
+      // Filter low stock by min_stock_level
+      const ls = (lowStockRes.data ?? []) as LowStockLot[];
+      setLowStockLots(ls.filter((l) => l.item_master?.min_stock_level != null && l.remaining_quantity < l.item_master.min_stock_level!).slice(0, 5));
+      setPeroxideAlerts((peroxideAlertsRes.data ?? []) as PeroxideAlert[]);
       setLoading(false);
     }
     load();
@@ -160,6 +204,75 @@ export default function DashboardPage() {
                   <p className="text-xs shrink-0" style={{ color: "var(--color-text-muted)" }}>
                     {format(new Date(tx.created_at), "dd MMM")}
                   </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Phase 2 Widgets Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Low Stock Widget */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Low Stock Alerts</h2>
+            <Link href="/inventory" className="text-xs font-medium transition-base" style={{ color: "var(--color-brand-600)" }}>View inventory</Link>
+          </div>
+          {lowStockLots.length === 0 ? (
+            <p className="text-sm py-4 text-center" style={{ color: "var(--color-text-muted)" }}>All stock levels are adequate</p>
+          ) : (
+            <div className="space-y-2">
+              {lowStockLots.map((lot) => {
+                const min = lot.item_master?.min_stock_level ?? 1;
+                const pct = Math.min((lot.remaining_quantity / min) * 100, 100);
+                return (
+                  <div key={lot.id} className="rounded-lg px-3 py-2.5" style={{ background: "var(--color-surface-alt)" }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-medium" style={{ color: "var(--color-text-primary)" }}>
+                        {lot.item_master?.name}
+                      </p>
+                      <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+                        {lot.remaining_quantity} / {min} {lot.unit}
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--color-danger)" }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        {/* Peroxide Alerts Widget */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Peroxide Monitor</h2>
+            <Link href="/peroxide" className="text-xs font-medium transition-base" style={{ color: "var(--color-brand-600)" }}>Record inspection</Link>
+          </div>
+          {peroxideAlerts.length === 0 ? (
+            <p className="text-sm py-4 text-center" style={{ color: "var(--color-text-muted)" }}>No peroxide lots to monitor</p>
+          ) : (
+            <div className="space-y-2">
+              {peroxideAlerts.slice(0, 5).map((lot) => (
+                <div key={lot.id} className="flex items-center justify-between rounded-lg px-3 py-2.5" style={{ background: "var(--color-surface-alt)" }}>
+                  <div>
+                    <p className="text-xs font-medium" style={{ color: "var(--color-text-primary)" }}>
+                      {(lot.item_master as any)?.name}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      Lot {lot.lot_number} · {(lot.villages as any)?.name}
+                    </p>
+                  </div>
+                  {lot.status === "quarantined" ? (
+                    <Badge variant="danger">Quarantined</Badge>
+                  ) : (
+                    <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-warning)" }}>
+                      <AlertTriangle size={12} /> Needs inspection
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

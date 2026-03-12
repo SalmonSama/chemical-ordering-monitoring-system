@@ -64,8 +64,8 @@ export default function OrdersPage() {
     const order = orders.find(o => o.id === orderId);
     const year = new Date().getFullYear();
     const { data: poNumber } = await supabase.rpc("generate_po_number", {
-      village_code: (order?.villages as any)?.name?.slice(0, 3)?.toUpperCase() ?? "LAB",
-      year,
+      p_village_code: (order?.villages as any)?.name?.slice(0, 3)?.toUpperCase() ?? "LAB",
+      p_year: year,
     });
     await supabase.from("purchase_orders").update({
       status: "approved", po_number: poNumber,

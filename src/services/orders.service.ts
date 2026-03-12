@@ -53,8 +53,8 @@ export async function approveOrder(orderId: string, approverId: string) {
   // Generate PO number via DB function
   const year = new Date().getFullYear();
   const { data: poNumber, error: poErr } = await supabase.rpc("generate_po_number", {
-    village_code: (order.villages as any)?.code ?? "VLG",
-    year,
+    p_village_code: (order.villages as any)?.code ?? "VLG",
+    p_year: year,
   });
   if (poErr) throw poErr;
 

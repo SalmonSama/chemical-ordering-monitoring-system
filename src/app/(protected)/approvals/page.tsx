@@ -52,7 +52,7 @@ export default function ApprovalsPage() {
     const order = orders.find(o => o.id === orderId);
     const villageCode = (order?.villages as any)?.code ?? "LAB";
     const year = new Date().getFullYear();
-    const { data: poNumber, error: poErr } = await supabase.rpc("generate_po_number", { village_code: villageCode, year });
+    const { data: poNumber, error: poErr } = await supabase.rpc("generate_po_number", { p_village_code: villageCode, p_year: year });
     if (poErr) { toast("error", poErr.message); setActionLoading(false); return; }
     const { error: updateErr } = await supabase.from("purchase_orders").update({
       status: "approved", po_number: poNumber,

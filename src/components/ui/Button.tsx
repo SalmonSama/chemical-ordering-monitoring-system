@@ -3,7 +3,7 @@
 import { clsx } from "clsx";
 import type { ButtonHTMLAttributes } from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "danger" | "ghost" | "success";
 type Size = "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -24,6 +24,10 @@ const variantStyles: Record<Variant, { background: string; color: string; border
   },
   danger: {
     background: "var(--color-danger)",
+    color: "#fff",
+  },
+  success: {
+    background: "var(--color-success)",
     color: "#fff",
   },
   ghost: {

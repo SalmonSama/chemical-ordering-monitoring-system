@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { CheckCircle, XCircle, Info, X } from "lucide-react";
+import { CheckCircle, XCircle, Info, AlertTriangle, X } from "lucide-react";
 import { clsx } from "clsx";
 
-export type ToastType = "success" | "error" | "info";
+export type ToastType = "success" | "error" | "info" | "warning";
 
 export interface Toast {
   id: string;
@@ -16,6 +16,7 @@ const icons: Record<ToastType, React.ReactNode> = {
   success: <CheckCircle size={16} />,
   error: <XCircle size={16} />,
   info: <Info size={16} />,
+  warning: <AlertTriangle size={16} />,
 };
 
 const toastStyles: Record<
@@ -36,6 +37,11 @@ const toastStyles: Record<
     background: "var(--color-info-bg)",
     color: "var(--color-info)",
     border: "1px solid var(--color-info)",
+  },
+  warning: {
+    background: "var(--color-warning-bg)",
+    color: "var(--color-warning)",
+    border: "1px solid var(--color-warning)",
   },
 };
 

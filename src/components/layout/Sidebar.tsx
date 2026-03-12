@@ -71,15 +71,16 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Admin",
     items: [
-      { label: "Users",              href: "/admin/users",   icon: <Users size={18} />,           requiresPath: "/admin/users" },
-      { label: "Items",              href: "/admin/items",   icon: <Package size={18} />,         requiresPath: "/admin/items" },
-      { label: "Villages & Labs",    href: "/admin/villages",icon: <Building2 size={18} />,       requiresPath: "/admin/villages" },
+      { label: "Users",              href: "/admin/users",     icon: <Users size={18} />,           requiresPath: "/admin/users" },
+      { label: "Items",              href: "/admin/items",     icon: <Package size={18} />,         requiresPath: "/admin/items" },
+      { label: "Villages & Labs",    href: "/admin/villages",  icon: <Building2 size={18} />,       requiresPath: "/admin/villages" },
+      { label: "System Settings",    href: "/admin/settings",  icon: <Settings size={18} />,        requiresPath: "/admin/settings" },
     ],
   },
   {
     label: "Account",
     items: [
-      { label: "Settings",           href: "/settings",      icon: <Settings size={18} />,        requiresPath: "/settings" },
+      { label: "My Settings",        href: "/settings",        icon: <Settings size={18} />,        requiresPath: "/settings" },
     ],
   },
 ];
