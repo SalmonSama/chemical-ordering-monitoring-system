@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile } = await supabaseUser
     .from("user_profiles")
-    .select("role")
+    .select("id, role")
     .eq("auth_user_id", user.id)
     .single();
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   const adminClient = createAdminClient();
   const updates: Record<string, unknown> = {
     status: action === "approve" ? "active" : "rejected",
-    approved_by: user.id,
+    approved_by: profile.id,
     approved_at: new Date().toISOString(),
   };
   if (action === "approve" && role) {
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       reference_id: userId,
       reference_type: "user_profiles",
       description: `User account approved with role ${role ?? "unassigned"}`,
-      user_id: user.id,
+      user_id: profile.id,
     });
   }
 

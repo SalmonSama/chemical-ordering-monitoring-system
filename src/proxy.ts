@@ -8,7 +8,7 @@ import { updateSession } from "@/lib/supabase/middleware";
  *  1. Refresh the Supabase session so cookies stay up to date (done here).
  *  2. Auth guard + role-based redirects (implemented fully in Step 4).
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Step 1: refresh session and get the current user.
   const { supabaseResponse, user } = await updateSession(request);
 
