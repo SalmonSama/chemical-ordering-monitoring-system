@@ -67,7 +67,7 @@ export default function CheckOutPage() {
     const supabase = createClient();
     const { data: checkoutId, error: rpcErr } = await supabase.rpc("perform_checkout", {
       p_lot_id: form.lot_id, p_quantity: qty,
-      p_user_id: profile.auth_user_id, p_purpose: form.purpose || null,
+      p_user_id: profile.auth_user_id, p_purpose: form.purpose || undefined,
     });
     if (rpcErr) { setError(rpcErr.message); setSaving(false); return; }
 

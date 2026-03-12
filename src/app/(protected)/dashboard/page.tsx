@@ -8,10 +8,13 @@ import {
   ShoppingCart, CheckSquare, Boxes, FlaskConical,
   TrendingUp, TrendingDown, Minus, ArrowRight, AlertTriangle
 } from "lucide-react";
-import { Badge, statusVariant } from "@/components/ui/Badge";
-import { format } from "date-fns";
+import { Badge } from "@/components/ui/Badge";
+import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import Link from "next/link";
 import { useVillageScope } from "@/hooks/useVillageScope";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 
 interface KpiData {
   totalOrders: number;
@@ -39,6 +42,12 @@ interface PeroxideAlert {
   villages: { name: string } | null;
 }
 
+interface TrendPoint {
+  month: string;
+  orders: number;
+  checkIns: number;
+}
+
 export default function DashboardPage() {
   const { villageId } = useVillageScope();
   const [kpi, setKpi] = useState<KpiData | null>(null);
@@ -46,6 +55,7 @@ export default function DashboardPage() {
   const [recentTx, setRecentTx] = useState<any[]>([]);
   const [lowStockLots, setLowStockLots] = useState<LowStockLot[]>([]);
   const [peroxideAlerts, setPeroxideAlerts] = useState<PeroxideAlert[]>([]);
+  const [trendData, setTrendData] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -82,7 +92,23 @@ export default function DashboardPage() {
         .in("status", ["active", "quarantined"]);
       if (villageId) peroxideAlertsQ = peroxideAlertsQ.eq("village_id", villageId);
 
-      const [ordersRes, pendingRes, lotsRes, peroxideRes, txRes, lowStockRes, peroxideAlertsRes] = await Promise.all([
+      // Build 6-month date buckets
+      const now = new Date();
+      const months = Array.from({ length: 6 }, (_, i) => {
+        const d = subMonths(now, 5 - i);
+        return { label: format(d, "MMM"), start: startOfMonth(d).toISOString(), end: endOfMonth(d).toISOString() };
+      });
+
+      // Fetch trend data: all tx in last 6 months of relevant types
+      const sixMonthsAgo = startOfMonth(subMonths(now, 5)).toISOString();
+      let trendQ = supabase
+        .from("transactions")
+        .select("type, created_at")
+        .gte("created_at", sixMonthsAgo)
+        .in("type", ["order_created", "check_in"]);
+      if (villageId) trendQ = trendQ.eq("village_id", villageId);
+
+      const [ordersRes, pendingRes, lotsRes, peroxideRes, txRes, lowStockRes, peroxideAlertsRes, trendRes] = await Promise.all([
         poQuery,
         pendingQuery,
         lotQuery,
@@ -90,6 +116,7 @@ export default function DashboardPage() {
         txQuery,
         lowStockQ,
         peroxideAlertsQ,
+        trendQ,
       ]);
 
       setKpi({
@@ -100,6 +127,16 @@ export default function DashboardPage() {
       });
       setPendingOrders(pendingRes.data ?? []);
       setRecentTx(txRes.data ?? []);
+
+      // Aggregate trend data
+      const txRows = trendRes.data ?? [];
+      setTrendData(
+        months.map(({ label, start, end }) => ({
+          month: label,
+          orders: txRows.filter((t) => t.type === "order_created" && t.created_at >= start && t.created_at <= end).length,
+          checkIns: txRows.filter((t) => t.type === "check_in" && t.created_at >= start && t.created_at <= end).length,
+        }))
+      );
 
       // Filter low stock by min_stock_level
       const ls = (lowStockRes.data ?? []) as LowStockLot[];
@@ -210,6 +247,44 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {/* 6-Month Trend Chart */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Activity Trends</h2>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>Orders created vs. check-ins — last 6 months</p>
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={220}>
+          <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorOrders" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-brand-500)" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="var(--color-brand-500)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="colorCheckIns" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
+            <Tooltip
+              contentStyle={{
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "8px",
+                fontSize: "12px",
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: "12px", color: "var(--color-text-muted)" }} />
+            <Area type="monotone" dataKey="orders" name="Orders" stroke="var(--color-brand-500)" fill="url(#colorOrders)" strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="checkIns" name="Check-ins" stroke="var(--color-success)" fill="url(#colorCheckIns)" strokeWidth={2} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
 
       {/* Phase 2 Widgets Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -88,7 +88,7 @@ export async function checkOut(data: {
     p_lot_id: data.lot_id,
     p_quantity: data.quantity,
     p_user_id: data.checked_out_by,
-    p_purpose: data.purpose ?? null,
+    p_purpose: data.purpose ?? undefined,
   });
   if (error) throw error;
 

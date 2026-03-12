@@ -75,7 +75,7 @@ export default function NewOrderPage() {
         <div>
           <h1 className="text-xl font-bold" style={{ color: "var(--color-text-primary)" }}>New Order Request</h1>
           <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {profile?.villages ? (profile as any).villages?.name : ""} · {profile?.labs ? (profile as any).labs?.name : ""}
+            {(profile as any)?.villages?.name ?? ""} · {(profile as any)?.labs?.name ?? ""}
           </p>
         </div>
       </div>
