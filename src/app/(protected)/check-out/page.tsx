@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/useUser";
 import { useVillageScope } from "@/hooks/useVillageScope";
@@ -15,8 +15,24 @@ import { useToast, ToastContainer } from "@/components/ui/Toast";
 import { Minus } from "lucide-react";
 import { format } from "date-fns";
 
+// ── Types ───────────────────────────────────────────────────────────────────
+
+interface ActiveLot {
+  id: string;
+  lot_number: string;
+  remaining_quantity: number;
+  received_quantity: number;
+  unit: string;
+  expiry_date: string | null;
+  village_id: string;
+  item_master: { name: string; unit: string } | null;
+  villages: { name: string } | null;
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────
+
 function StockProgressBar({ remaining, total }: { remaining: number; total: number }) {
-  const pct = total > 0 ? Math.round((remaining / total) * 100) : 0;
+  const pct   = total > 0 ? Math.round((remaining / total) * 100) : 0;
   const color = pct > 50 ? "var(--color-success)" : pct > 20 ? "var(--color-warning)" : "var(--color-danger)";
   return (
     <div>
@@ -31,56 +47,86 @@ function StockProgressBar({ remaining, total }: { remaining: number; total: numb
   );
 }
 
+// ── Page ────────────────────────────────────────────────────────────────────
+
 export default function CheckOutPage() {
   const { profile, loading: profileLoading } = useUser();
   const { villageId } = useVillageScope();
-  const [lots, setLots] = useState<any[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+
+  const [lots, setLots]       = useState<ActiveLot[]>([]);
+  const [error, setError]     = useState<string | null>(null);
+  const [saving, setSaving]   = useState(false);
   const { toasts, toast, remove } = useToast();
   const [form, setForm] = useState({ lot_id: "", quantity: "", purpose: "" });
 
-  useEffect(() => {
+  // Performance fix: extracting the load query into a useCallback ensures
+  // (a) the same function reference is used on initial load and post-submit
+  //     refresh, and (b) villageId is always applied — the previous ad-hoc
+  //     inline refresh query on line 82 of the original file omitted the
+  //     village_id filter, exposing lots from all villages to non-admin users.
+  const loadLots = useCallback(async () => {
     const supabase = createClient();
-    let q = supabase.from("item_lots")
-      .select("*, item_master(name, unit), villages(name)")
+
+    // Select only the columns the page actually renders — avoids SELECT *
+    let q = supabase
+      .from("item_lots")
+      // The FEFO (First-Expiry-First-Out) ordering is enforced DB-side here;
+      // the new idx_item_lots_active_expiry partial index covers this exactly.
+      .select("id, lot_number, remaining_quantity, received_quantity, unit, expiry_date, village_id, item_master(name, unit), villages(name)")
       .eq("status", "active")
       .gt("remaining_quantity", 0)
-      .order("expiry_date", { ascending: true });
+      .order("expiry_date", { ascending: true, nullsFirst: false });
+
+    // Always apply village scope — this was missing from the original refresh
     if (villageId) q = q.eq("village_id", villageId);
-    q.then(({ data }) => setLots(data ?? []));
+
+    const { data } = await q;
+    setLots((data ?? []) as ActiveLot[]);
   }, [villageId]);
 
-  function set(key: string, value: string) { setForm(f => ({ ...f, [key]: value })); }
+  useEffect(() => { loadLots(); }, [loadLots]);
 
-  const selectedLot = lots.find(l => l.id === form.lot_id);
+  function set(key: string, value: string) { setForm((f) => ({ ...f, [key]: value })); }
+
+  const selectedLot = lots.find((l) => l.id === form.lot_id);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!profile || !selectedLot) return;
+
     const qty = Number(form.quantity);
     if (qty > selectedLot.remaining_quantity) {
       setError(`Cannot check out more than remaining quantity (${selectedLot.remaining_quantity}).`);
       return;
     }
-    setError(null); setSaving(true);
+
+    setError(null);
+    setSaving(true);
     const supabase = createClient();
+
     const { data: checkoutId, error: rpcErr } = await supabase.rpc("perform_checkout", {
-      p_lot_id: form.lot_id, p_quantity: qty,
-      p_user_id: profile.auth_user_id, p_purpose: form.purpose || undefined,
+      p_lot_id:   form.lot_id,
+      p_quantity: qty,
+      p_user_id:  profile.auth_user_id,
+      p_purpose:  form.purpose || undefined,
     });
+
     if (rpcErr) { setError(rpcErr.message); setSaving(false); return; }
 
     await supabase.from("transactions").insert({
-      type: "check_out", reference_id: checkoutId, reference_type: "checkouts",
-      description: `Check-out: ${qty} ${(selectedLot.item_master as any)?.unit} of ${(selectedLot.item_master as any)?.name} (Lot ${selectedLot.lot_number})`,
-      user_id: profile.auth_user_id, village_id: selectedLot.village_id,
+      type:           "check_out",
+      reference_id:   checkoutId,
+      reference_type: "checkouts",
+      description:    `Check-out: ${qty} ${selectedLot.item_master?.unit} of ${selectedLot.item_master?.name} (Lot ${selectedLot.lot_number})`,
+      user_id:        profile.auth_user_id,
+      village_id:     selectedLot.village_id,
     });
-    toast("success", `Checked out ${qty} ${(selectedLot.item_master as any)?.unit} successfully!`);
+
+    toast("success", `Checked out ${qty} ${selectedLot.item_master?.unit} successfully!`);
     setForm({ lot_id: "", quantity: "", purpose: "" });
-    // refresh lots
-    const q2 = supabase.from("item_lots").select("*, item_master(name, unit), villages(name)").eq("status", "active").gt("remaining_quantity", 0);
-    q2.then(({ data }) => setLots(data ?? []));
+
+    // Refresh using the same scoped query — village_id is always applied
+    loadLots();
     setSaving(false);
   }
 
@@ -98,6 +144,7 @@ export default function CheckOutPage() {
           <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Consume from an active lot</p>
         </div>
       </div>
+
       <Card>
         {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -105,16 +152,19 @@ export default function CheckOutPage() {
             label="Lot *"
             required
             value={form.lot_id}
-            onChange={e => set("lot_id", e.target.value)}
-            options={lots.map(l => ({
+            onChange={(e) => set("lot_id", e.target.value)}
+            options={lots.map((l) => ({
               value: l.id,
-              label: `${(l.item_master as any)?.name} — Lot ${l.lot_number} (${l.remaining_quantity} ${(l.item_master as any)?.unit} left)`,
+              label: `${l.item_master?.name} — Lot ${l.lot_number} (${l.remaining_quantity} ${l.item_master?.unit} left)`,
             }))}
             placeholder="Select active lot…"
           />
+
           {selectedLot && (
             <div className="space-y-2 rounded-lg px-4 py-3" style={{ background: "var(--color-surface-alt)", border: "1px solid var(--color-border)" }}>
-              <p className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>{(selectedLot.item_master as any)?.name}</p>
+              <p className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>
+                {selectedLot.item_master?.name}
+              </p>
               <StockProgressBar remaining={selectedLot.remaining_quantity} total={selectedLot.received_quantity} />
               {selectedLot.expiry_date && (
                 <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
@@ -123,6 +173,7 @@ export default function CheckOutPage() {
               )}
             </div>
           )}
+
           <Input
             label="Quantity *"
             type="number"
@@ -131,9 +182,10 @@ export default function CheckOutPage() {
             max={selectedLot?.remaining_quantity ?? undefined}
             required
             value={form.quantity}
-            onChange={e => set("quantity", e.target.value)}
+            onChange={(e) => set("quantity", e.target.value)}
           />
-          <Textarea label="Purpose" value={form.purpose} onChange={e => set("purpose", e.target.value)} rows={2} />
+          <Textarea label="Purpose" value={form.purpose} onChange={(e) => set("purpose", e.target.value)} rows={2} />
+
           <div className="flex justify-end gap-3 pt-2">
             <Button type="submit" loading={saving} disabled={!form.lot_id || !form.quantity}>
               Confirm Check-out

@@ -241,6 +241,47 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          is_read: boolean
+          link: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          title: string
+          type: Database["public"]["Enums"]["notification_type"]
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          title?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peroxide_inspections: {
         Row: {
           action_taken: string | null
@@ -735,18 +776,28 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_notification: {
+        Args: {
+          p_body: string
+          p_link?: string
+          p_title: string
+          p_type: Database["public"]["Enums"]["notification_type"]
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       generate_po_number: {
         Args: { p_village_code: string; p_year: number }
         Returns: string
       }
-      get_current_profile_id: { Args: Record<PropertyKey, never>; Returns: string }
+      get_current_profile_id: { Args: never; Returns: string }
       get_current_user_role: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
-      get_current_user_village_id: { Args: Record<PropertyKey, never>; Returns: string }
-      is_active_user: { Args: Record<PropertyKey, never>; Returns: boolean }
-      is_admin: { Args: Record<PropertyKey, never>; Returns: boolean }
+      get_current_user_village_id: { Args: never; Returns: string }
+      is_active_user: { Args: never; Returns: boolean }
+      is_admin: { Args: never; Returns: boolean }
       perform_checkout: {
         Args: {
           p_lot_id: string
@@ -767,6 +818,16 @@ export type Database = {
         | "material_supply"
         | "peroxide"
       lot_status: "active" | "depleted" | "expired" | "quarantined" | "disposed"
+      notification_type:
+        | "order_created"
+        | "order_approved"
+        | "order_rejected"
+        | "user_approved"
+        | "user_rejected"
+        | "peroxide_quarantine"
+        | "shelf_life_request"
+        | "shelf_life_approved"
+        | "shelf_life_rejected"
       order_status:
         | "pending"
         | "approved"
@@ -912,13 +973,55 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
-// Convenience aliases kept from original hand-crafted types
-export type UserRole = Database["public"]["Enums"]["user_role"]
-export type UserStatus = Database["public"]["Enums"]["user_status"]
-export type OrderStatus = Database["public"]["Enums"]["order_status"]
-export type LotStatus = Database["public"]["Enums"]["lot_status"]
-export type InspectionStatus = Database["public"]["Enums"]["inspection_status"]
-export type ExtensionStatus = Database["public"]["Enums"]["extension_status"]
-export type RegulatoryStatus = Database["public"]["Enums"]["regulatory_status"]
-export type ItemCategory = Database["public"]["Enums"]["item_category"]
-export type TransactionType = Database["public"]["Enums"]["transaction_type"]
+export const Constants = {
+  public: {
+    Enums: {
+      extension_status: ["pending", "approved", "rejected"],
+      inspection_status: ["normal", "warning", "quarantine"],
+      item_category: [
+        "chemical_reagent",
+        "calibration_std",
+        "gas",
+        "material_supply",
+        "peroxide",
+      ],
+      lot_status: ["active", "depleted", "expired", "quarantined", "disposed"],
+      notification_type: [
+        "order_created",
+        "order_approved",
+        "order_rejected",
+        "user_approved",
+        "user_rejected",
+        "peroxide_quarantine",
+        "shelf_life_request",
+        "shelf_life_approved",
+        "shelf_life_rejected",
+      ],
+      order_status: [
+        "pending",
+        "approved",
+        "rejected",
+        "ordered",
+        "partially_received",
+        "received",
+        "closed",
+      ],
+      regulatory_status: ["active", "expired", "pending_review"],
+      transaction_type: [
+        "order_created",
+        "order_approved",
+        "order_rejected",
+        "check_in",
+        "check_out",
+        "inspection",
+        "shelf_life_extension",
+        "regulatory_update",
+        "user_approved",
+      ],
+      user_role: ["admin", "requester", "focal_point", "staff", "compliance"],
+      user_status: ["pending", "active", "rejected", "inactive"],
+    },
+  },
+} as const;
+
+export type UserRole = Database["public"]["Enums"]["user_role"];

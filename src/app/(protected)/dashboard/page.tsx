@@ -6,21 +6,24 @@ import { Card } from "@/components/ui/Card";
 import { PageLoader } from "@/components/ui/LoadingSpinner";
 import {
   ShoppingCart, CheckSquare, Boxes, FlaskConical,
-  TrendingUp, TrendingDown, Minus, ArrowRight, AlertTriangle
+  ArrowRight, AlertTriangle
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
+import { format } from "date-fns";
 import Link from "next/link";
 import { useVillageScope } from "@/hooks/useVillageScope";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
 
-interface KpiData {
-  totalOrders: number;
-  pendingApprovals: number;
-  activeLots: number;
-  peroxideWarnings: number;
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface DashboardStats {
+  total_orders: number;
+  pending_approvals: number;
+  active_lots: number;
+  peroxide_warnings: number;
+  low_stock_lots: LowStockLot[];
 }
 
 interface LowStockLot {
@@ -29,7 +32,13 @@ interface LowStockLot {
   remaining_quantity: number;
   received_quantity: number;
   unit: string;
-  item_master: { name: string; min_stock_level: number | null } | null;
+  item_master: { name: string; min_stock_level: number } | null;
+}
+
+interface TrendPoint {
+  month: string;
+  orders: number;
+  checkIns: number;
 }
 
 interface PeroxideAlert {
@@ -42,125 +51,114 @@ interface PeroxideAlert {
   villages: { name: string } | null;
 }
 
-interface TrendPoint {
-  month: string;
-  orders: number;
-  checkIns: number;
-}
+// ── Page ───────────────────────────────────────────────────────────────────
+
+const TX_TYPE_LABELS: Record<string, string> = {
+  order_created: "Order Created", order_approved: "Order Approved",
+  order_rejected: "Order Rejected", check_in: "Check-in",
+  check_out: "Check-out", inspection: "Inspection",
+  shelf_life_extension: "Shelf Life Ext.", regulatory_update: "Regulatory Update",
+  user_approved: "User Approved",
+};
 
 export default function DashboardPage() {
   const { villageId } = useVillageScope();
-  const [kpi, setKpi] = useState<KpiData | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [recentTx, setRecentTx] = useState<any[]>([]);
-  const [lowStockLots, setLowStockLots] = useState<LowStockLot[]>([]);
-  const [peroxideAlerts, setPeroxideAlerts] = useState<PeroxideAlert[]>([]);
   const [trendData, setTrendData] = useState<TrendPoint[]>([]);
+  const [peroxideAlerts, setPeroxideAlerts] = useState<PeroxideAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
 
-      // Build scoped queries
-      let poQuery = supabase.from("purchase_orders").select("id, status, item_master(name), villages(name), created_at", { count: "exact" });
-      let pendingQuery = supabase.from("purchase_orders").select("id, status, item_master(name), villages(name), requester_id, created_at").eq("status", "pending").order("created_at", { ascending: false }).limit(5);
-      let lotQuery = supabase.from("item_lots").select("id, status", { count: "exact" }).eq("status", "active");
-      let peroxideQuery = supabase.from("peroxide_inspections").select("id, status", { count: "exact" }).in("status", ["warning", "quarantine"]);
-      let txQuery = supabase.from("transactions").select("id, type, description, created_at").order("created_at", { ascending: false }).limit(8);
+      // ── Performance optimisation ────────────────────────────────────────
+      // BEFORE: 8 separate parallel queries, 2× count:"exact", JS bucket loop
+      // AFTER:  4 targeted queries
+      //   1. get_dashboard_stats RPC  — all KPI counts + low-stock in one call
+      //   2. get_activity_trend  RPC  — 6-month trend aggregated in DB (not JS)
+      //   3. pending orders list      — already scoped + limited
+      //   4. recent transactions      — already limited to 8 rows
 
-      if (villageId) {
-        poQuery = poQuery.eq("village_id", villageId);
-        pendingQuery = pendingQuery.eq("village_id", villageId);
-        lotQuery = lotQuery.eq("village_id", villageId);
-        txQuery = txQuery.eq("village_id", villageId);
-      }
+      const [statsRes, trendRes, pendingRes, txRes, peroxideAlertsRes] =
+        await Promise.all([
+          // 1. All KPI counts + low-stock lots — single DB round-trip
+          supabase.rpc("get_dashboard_stats", {
+            p_village_id: villageId ?? null,
+          }),
 
-      // Low stock: lots where remaining < min_stock_level
-      let lowStockQ = supabase
-        .from("item_lots")
-        .select("id, lot_number, remaining_quantity, received_quantity, unit, item_master(name, min_stock_level)")
-        .eq("status", "active")
-        .order("remaining_quantity");
-      if (villageId) lowStockQ = lowStockQ.eq("village_id", villageId);
+          // 2. Trend data aggregated by DB (date_trunc GROUP BY) instead of
+          //    loading all transactions and bucketing in JS
+          supabase.rpc("get_activity_trend", {
+            p_village_id: villageId ?? null,
+            p_months: 6,
+          }),
 
-      // Peroxide alerts: peroxide lots in warning/quarantine status
-      let peroxideAlertsQ = supabase
-        .from("item_lots")
-        .select("id, lot_number, remaining_quantity, unit, status, item_master(name), villages(name)")
-        .eq("is_peroxide", true)
-        .in("status", ["active", "quarantined"]);
-      if (villageId) peroxideAlertsQ = peroxideAlertsQ.eq("village_id", villageId);
+          // 3. Pending order details for the widget (select only needed cols)
+          (() => {
+            let q = supabase
+              .from("purchase_orders")
+              .select("id, status, item_master(name), villages(name), created_at")
+              .eq("status", "pending")
+              .order("created_at", { ascending: false })
+              .limit(5);
+            if (villageId) q = q.eq("village_id", villageId);
+            return q;
+          })(),
 
-      // Build 6-month date buckets
-      const now = new Date();
-      const months = Array.from({ length: 6 }, (_, i) => {
-        const d = subMonths(now, 5 - i);
-        return { label: format(d, "MMM"), start: startOfMonth(d).toISOString(), end: endOfMonth(d).toISOString() };
+          // 4. Recent transactions (select only necessary cols)
+          (() => {
+            let q = supabase
+              .from("transactions")
+              .select("id, type, description, created_at")
+              .order("created_at", { ascending: false })
+              .limit(8);
+            if (villageId) q = q.eq("village_id", villageId);
+            return q;
+          })(),
+
+          // 5. Peroxide-flagged lots for the monitor widget
+          (() => {
+            let q = supabase
+              .from("item_lots")
+              .select("id, lot_number, remaining_quantity, unit, status, item_master(name), villages(name)")
+              .eq("is_peroxide", true)
+              .in("status", ["active", "quarantined"])
+              .limit(5);
+            if (villageId) q = q.eq("village_id", villageId);
+            return q;
+          })(),
+        ]);
+
+      // Unwrap Dashboard Stats RPC result
+      const rawStats = statsRes.data as DashboardStats | null;
+      setStats(rawStats ?? {
+        total_orders: 0, pending_approvals: 0,
+        active_lots: 0, peroxide_warnings: 0, low_stock_lots: [],
       });
 
-      // Fetch trend data: all tx in last 6 months of relevant types
-      const sixMonthsAgo = startOfMonth(subMonths(now, 5)).toISOString();
-      let trendQ = supabase
-        .from("transactions")
-        .select("type, created_at")
-        .gte("created_at", sixMonthsAgo)
-        .in("type", ["order_created", "check_in"]);
-      if (villageId) trendQ = trendQ.eq("village_id", villageId);
+      // Trend data is already aggregated by the DB function
+      setTrendData((trendRes.data as TrendPoint[] | null) ?? []);
 
-      const [ordersRes, pendingRes, lotsRes, peroxideRes, txRes, lowStockRes, peroxideAlertsRes, trendRes] = await Promise.all([
-        poQuery,
-        pendingQuery,
-        lotQuery,
-        peroxideQuery,
-        txQuery,
-        lowStockQ,
-        peroxideAlertsQ,
-        trendQ,
-      ]);
-
-      setKpi({
-        totalOrders: ordersRes.count ?? 0,
-        pendingApprovals: (ordersRes.data ?? []).filter((o: any) => o.status === "pending").length,
-        activeLots: lotsRes.count ?? 0,
-        peroxideWarnings: peroxideRes.count ?? 0,
-      });
       setPendingOrders(pendingRes.data ?? []);
       setRecentTx(txRes.data ?? []);
-
-      // Aggregate trend data
-      const txRows = trendRes.data ?? [];
-      setTrendData(
-        months.map(({ label, start, end }) => ({
-          month: label,
-          orders: txRows.filter((t) => t.type === "order_created" && t.created_at >= start && t.created_at <= end).length,
-          checkIns: txRows.filter((t) => t.type === "check_in" && t.created_at >= start && t.created_at <= end).length,
-        }))
-      );
-
-      // Filter low stock by min_stock_level
-      const ls = (lowStockRes.data ?? []) as LowStockLot[];
-      setLowStockLots(ls.filter((l) => l.item_master?.min_stock_level != null && l.remaining_quantity < l.item_master.min_stock_level!).slice(0, 5));
-      setPeroxideAlerts((peroxideAlertsRes.data ?? []) as PeroxideAlert[]);
+      setPeroxideAlerts((peroxideAlertsRes.data as PeroxideAlert[]) ?? []);
       setLoading(false);
     }
+
     load();
   }, [villageId]);
 
   if (loading) return <PageLoader />;
 
   const kpiCards = [
-    { label: "Total Orders", value: kpi!.totalOrders, icon: <ShoppingCart size={20} />, color: "var(--color-brand-600)", bg: "var(--color-brand-100)" },
-    { label: "Pending Approvals", value: kpi!.pendingApprovals, icon: <CheckSquare size={20} />, color: "var(--color-warning)", bg: "var(--color-warning-bg)", link: "/approvals" },
-    { label: "Active Lots", value: kpi!.activeLots, icon: <Boxes size={20} />, color: "var(--color-success)", bg: "var(--color-success-bg)"},
-    { label: "Peroxide Alerts", value: kpi!.peroxideWarnings, icon: <FlaskConical size={20} />, color: "var(--color-danger)", bg: "var(--color-danger-bg)", link: "/peroxide" },
+    { label: "Total Orders",      value: stats!.total_orders,      icon: <ShoppingCart size={20} />, color: "var(--color-brand-600)", bg: "var(--color-brand-100)" },
+    { label: "Pending Approvals", value: stats!.pending_approvals, icon: <CheckSquare size={20} />,  color: "var(--color-warning)",   bg: "var(--color-warning-bg)", link: "/approvals" },
+    { label: "Active Lots",       value: stats!.active_lots,       icon: <Boxes size={20} />,        color: "var(--color-success)",   bg: "var(--color-success-bg)" },
+    { label: "Peroxide Alerts",   value: stats!.peroxide_warnings, icon: <FlaskConical size={20} />, color: "var(--color-danger)",    bg: "var(--color-danger-bg)",  link: "/peroxide" },
   ];
-
-  const TX_TYPE_LABELS: Record<string, string> = {
-    order_created: "Order Created", order_approved: "Order Approved", order_rejected: "Order Rejected",
-    check_in: "Check-in", check_out: "Check-out", inspection: "Inspection",
-    shelf_life_extension: "Shelf Life Ext.", regulatory_update: "Regulatory Update", user_approved: "User Approved",
-  };
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
@@ -248,7 +246,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* 6-Month Trend Chart */}
+      {/* 6-Month Trend Chart — data now aggregated by DB, not JS */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -260,45 +258,38 @@ export default function DashboardPage() {
           <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorOrders" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-brand-500)" stopOpacity={0.3} />
+                <stop offset="5%"  stopColor="var(--color-brand-500)" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="var(--color-brand-500)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="colorCheckIns" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
+                <stop offset="5%"  stopColor="var(--color-success)" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
-            <Tooltip
-              contentStyle={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "8px",
-                fontSize: "12px",
-              }}
-            />
+            <Tooltip contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", fontSize: "12px" }} />
             <Legend wrapperStyle={{ fontSize: "12px", color: "var(--color-text-muted)" }} />
-            <Area type="monotone" dataKey="orders" name="Orders" stroke="var(--color-brand-500)" fill="url(#colorOrders)" strokeWidth={2} dot={false} />
-            <Area type="monotone" dataKey="checkIns" name="Check-ins" stroke="var(--color-success)" fill="url(#colorCheckIns)" strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="orders"   name="Orders"     stroke="var(--color-brand-500)" fill="url(#colorOrders)"   strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="checkIns" name="Check-ins"  stroke="var(--color-success)"   fill="url(#colorCheckIns)" strokeWidth={2} dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </Card>
 
       {/* Phase 2 Widgets Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Low Stock Widget */}
+        {/* Low Stock Widget — items now filtered DB-side by the RPC */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>Low Stock Alerts</h2>
             <Link href="/inventory" className="text-xs font-medium transition-base" style={{ color: "var(--color-brand-600)" }}>View inventory</Link>
           </div>
-          {lowStockLots.length === 0 ? (
+          {(stats!.low_stock_lots ?? []).length === 0 ? (
             <p className="text-sm py-4 text-center" style={{ color: "var(--color-text-muted)" }}>All stock levels are adequate</p>
           ) : (
             <div className="space-y-2">
-              {lowStockLots.map((lot) => {
+              {stats!.low_stock_lots.map((lot) => {
                 const min = lot.item_master?.min_stock_level ?? 1;
                 const pct = Math.min((lot.remaining_quantity / min) * 100, 100);
                 return (
@@ -331,7 +322,7 @@ export default function DashboardPage() {
             <p className="text-sm py-4 text-center" style={{ color: "var(--color-text-muted)" }}>No peroxide lots to monitor</p>
           ) : (
             <div className="space-y-2">
-              {peroxideAlerts.slice(0, 5).map((lot) => (
+              {peroxideAlerts.map((lot) => (
                 <div key={lot.id} className="flex items-center justify-between rounded-lg px-3 py-2.5" style={{ background: "var(--color-surface-alt)" }}>
                   <div>
                     <p className="text-xs font-medium" style={{ color: "var(--color-text-primary)" }}>

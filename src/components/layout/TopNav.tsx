@@ -3,9 +3,10 @@
 import { useUser } from "@/hooks/useUser";
 import { signOut } from "@/services/auth.service";
 import { useRouter } from "next/navigation";
-import { Bell, LogOut, ChevronDown, User } from "lucide-react";
+import { LogOut, ChevronDown, User } from "lucide-react";
 import { useState } from "react";
 import { Badge, statusVariant } from "@/components/ui/Badge";
+import { NotificationBell } from "./NotificationBell";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -39,14 +40,8 @@ export function TopNav() {
 
       {/* Right: notification bell + user menu */}
       <div className="flex items-center gap-3">
-        {/* Notification bell (placeholder) */}
-        <button
-          className="relative p-2 rounded-lg transition-base"
-          style={{ color: "var(--color-text-muted)" }}
-          title="Notifications (coming in Phase 3)"
-        >
-          <Bell size={18} />
-        </button>
+        {/* Notification bell */}
+        <NotificationBell />
 
         {/* User menu */}
         <div className="relative">
