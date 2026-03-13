@@ -1,26 +1,27 @@
 "use client";
 
 import { useUser } from "@/hooks/useUser";
-import type { UserRole } from "@/types/database.types";
+import type { Database } from "@/types/database.types";
+type UserRole = Database["public"]["Enums"]["user_role"];
 
 /** Route access matrix — which roles can access which path prefixes. */
 const ACCESS_MATRIX: Record<string, UserRole[]> = {
-  "/dashboard":           ["admin", "requester", "focal_point", "staff", "compliance"],
-  "/orders/new":          ["admin", "requester", "staff"],
-  "/orders":              ["admin", "requester", "focal_point", "staff", "compliance"],
-  "/approvals":           ["admin", "focal_point"],
-  "/check-in":            ["admin", "staff"],
-  "/check-out":           ["admin", "requester", "staff"],
-  "/inventory":           ["admin", "requester", "focal_point", "staff", "compliance"],
-  "/peroxide":            ["admin", "staff", "compliance"],
-  "/shelf-life":          ["admin", "staff", "compliance"],
-  "/regulatory":          ["admin", "compliance"],
-  "/transactions":        ["admin", "requester", "focal_point", "staff", "compliance"],
-  "/settings":            ["admin", "requester", "focal_point", "staff", "compliance"],
-  "/admin/users":         ["admin"],
-  "/admin/items":         ["admin"],
-  "/admin/villages":      ["admin"],
-  "/admin/settings":      ["admin"],
+  "/dashboard": ["admin", "requester", "focal_point", "staff", "compliance"],
+  "/orders/new": ["admin", "requester", "staff"],
+  "/orders": ["admin", "requester", "focal_point", "staff", "compliance"],
+  "/approvals": ["admin", "focal_point"],
+  "/check-in": ["admin", "staff"],
+  "/check-out": ["admin", "requester", "staff"],
+  "/inventory": ["admin", "requester", "focal_point", "staff", "compliance"],
+  "/peroxide": ["admin", "staff", "compliance"],
+  "/shelf-life": ["admin", "staff", "compliance"],
+  "/regulatory": ["admin", "compliance"],
+  "/transactions": ["admin", "requester", "focal_point", "staff", "compliance"],
+  "/settings": ["admin", "requester", "focal_point", "staff", "compliance"],
+  "/admin/users": ["admin"],
+  "/admin/items": ["admin"],
+  "/admin/villages": ["admin"],
+  "/admin/settings": ["admin"],
 };
 
 export function usePermissions() {

@@ -86,13 +86,13 @@ export default function DashboardPage() {
         await Promise.all([
           // 1. All KPI counts + low-stock lots — single DB round-trip
           supabase.rpc("get_dashboard_stats", {
-            p_village_id: villageId ?? null,
+            p_village_id: villageId ?? undefined,
           }),
 
           // 2. Trend data aggregated by DB (date_trunc GROUP BY) instead of
           //    loading all transactions and bucketing in JS
           supabase.rpc("get_activity_trend", {
-            p_village_id: villageId ?? null,
+            p_village_id: villageId ?? undefined,
             p_months: 6,
           }),
 
@@ -154,10 +154,10 @@ export default function DashboardPage() {
   if (loading) return <PageLoader />;
 
   const kpiCards = [
-    { label: "Total Orders",      value: stats!.total_orders,      icon: <ShoppingCart size={20} />, color: "var(--color-brand-600)", bg: "var(--color-brand-100)" },
-    { label: "Pending Approvals", value: stats!.pending_approvals, icon: <CheckSquare size={20} />,  color: "var(--color-warning)",   bg: "var(--color-warning-bg)", link: "/approvals" },
-    { label: "Active Lots",       value: stats!.active_lots,       icon: <Boxes size={20} />,        color: "var(--color-success)",   bg: "var(--color-success-bg)" },
-    { label: "Peroxide Alerts",   value: stats!.peroxide_warnings, icon: <FlaskConical size={20} />, color: "var(--color-danger)",    bg: "var(--color-danger-bg)",  link: "/peroxide" },
+    { label: "Total Orders", value: stats!.total_orders, icon: <ShoppingCart size={20} />, color: "var(--color-brand-600)", bg: "var(--color-brand-100)" },
+    { label: "Pending Approvals", value: stats!.pending_approvals, icon: <CheckSquare size={20} />, color: "var(--color-warning)", bg: "var(--color-warning-bg)", link: "/approvals" },
+    { label: "Active Lots", value: stats!.active_lots, icon: <Boxes size={20} />, color: "var(--color-success)", bg: "var(--color-success-bg)" },
+    { label: "Peroxide Alerts", value: stats!.peroxide_warnings, icon: <FlaskConical size={20} />, color: "var(--color-danger)", bg: "var(--color-danger-bg)", link: "/peroxide" },
   ];
 
   return (
@@ -258,11 +258,11 @@ export default function DashboardPage() {
           <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorOrders" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="var(--color-brand-500)" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="var(--color-brand-500)" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="var(--color-brand-500)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="colorCheckIns" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="var(--color-success)" stopOpacity={0.3} />
+                <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.3} />
                 <stop offset="95%" stopColor="var(--color-success)" stopOpacity={0} />
               </linearGradient>
             </defs>
@@ -271,8 +271,8 @@ export default function DashboardPage() {
             <YAxis tick={{ fontSize: 11, fill: "var(--color-text-muted)" }} axisLine={false} tickLine={false} allowDecimals={false} />
             <Tooltip contentStyle={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "8px", fontSize: "12px" }} />
             <Legend wrapperStyle={{ fontSize: "12px", color: "var(--color-text-muted)" }} />
-            <Area type="monotone" dataKey="orders"   name="Orders"     stroke="var(--color-brand-500)" fill="url(#colorOrders)"   strokeWidth={2} dot={false} />
-            <Area type="monotone" dataKey="checkIns" name="Check-ins"  stroke="var(--color-success)"   fill="url(#colorCheckIns)" strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="orders" name="Orders" stroke="var(--color-brand-500)" fill="url(#colorOrders)" strokeWidth={2} dot={false} />
+            <Area type="monotone" dataKey="checkIns" name="Check-ins" stroke="var(--color-success)" fill="url(#colorCheckIns)" strokeWidth={2} dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </Card>

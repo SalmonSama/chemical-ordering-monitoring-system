@@ -52,12 +52,12 @@ function StockBar({ remaining, total }: { remaining: number; total: number }) {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const STATUS_TABS: { key: LotStatus; label: string }[] = [
-  { key: "all",         label: "All" },
-  { key: "active",      label: "Active" },
-  { key: "depleted",    label: "Depleted" },
-  { key: "expired",     label: "Expired" },
+  { key: "all", label: "All" },
+  { key: "active", label: "Active" },
+  { key: "depleted", label: "Depleted" },
+  { key: "expired", label: "Expired" },
   { key: "quarantined", label: "Quarantined" },
-  { key: "disposed",    label: "Disposed" },
+  { key: "disposed", label: "Disposed" },
 ];
 
 // Columns fetched from DB — only what the table displays, no SELECT *
@@ -72,15 +72,15 @@ export default function InventoryPage() {
   const { villageId } = useVillageScope();
 
   // Data
-  const [lots, setLots]           = useState<LotRow[]>([]);
-  const [totalCount, setTotal]    = useState(0);
+  const [lots, setLots] = useState<LotRow[]>([]);
+  const [totalCount, setTotal] = useState(0);
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Filters (controlled by UI)
   const [activeTab, setActiveTab] = useState<LotStatus>("active");
-  const [search, setSearch]       = useState("");
+  const [search, setSearch] = useState("");
 
   // Debounce: only fire a query 300 ms after the user stops typing.
   // We store the final "committed" search separately so the useCallback
@@ -170,13 +170,18 @@ export default function InventoryPage() {
       statuses.map((s) => {
         let q = supabase
           .from("item_lots")
-          .select("id", { count: "exact", head: true }) // head:true = no rows returned
-          .eq("status", s);
+          .select("id", { count: "exact", head: true }); // head:true = no rows returned
+
+        // ถ้าเป็นคำว่า all ไม่ต้องใส่เงื่อนไข eq("status") 
+        if (s !== "all") {
+          q = q.eq("status", s as "active" | "depleted" | "expired" | "quarantined" | "disposed");
+        }
+
         if (villageId) q = q.eq("village_id", villageId);
+
         return q.then(({ count }) => ({ status: s, count: count ?? 0 }));
       })
     );
-
     const counts: Record<string, number> = {};
     let total = 0;
     results.forEach(({ status, count }) => {
@@ -199,7 +204,7 @@ export default function InventoryPage() {
 
   const isExpiringSoon = (l: LotRow) => {
     if (!l.expiry_date) return false;
-    const exp  = new Date(l.expiry_date);
+    const exp = new Date(l.expiry_date);
     const soon = new Date();
     soon.setDate(soon.getDate() + 30);
     return isAfter(soon, exp) && isAfter(exp, new Date());
