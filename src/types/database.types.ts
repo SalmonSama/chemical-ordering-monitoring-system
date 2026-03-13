@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       checkouts: {
@@ -332,6 +357,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      po_number_sequences: {
+        Row: {
+          last_seq: number
+          village_code: string
+          year: number
+        }
+        Insert: {
+          last_seq?: number
+          village_code: string
+          year: number
+        }
+        Update: {
+          last_seq?: number
+          village_code?: string
+          year?: number
+        }
+        Relationships: []
       }
       purchase_orders: {
         Row: {
@@ -790,12 +833,17 @@ export type Database = {
         Args: { p_village_code: string; p_year: number }
         Returns: string
       }
+      get_activity_trend: {
+        Args: { p_months?: number; p_village_id?: string }
+        Returns: Json
+      }
       get_current_profile_id: { Args: never; Returns: string }
       get_current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
       get_current_user_village_id: { Args: never; Returns: string }
+      get_dashboard_stats: { Args: { p_village_id?: string }; Returns: Json }
       is_active_user: { Args: never; Returns: boolean }
       is_admin: { Args: never; Returns: boolean }
       perform_checkout: {
@@ -974,6 +1022,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       extension_status: ["pending", "approved", "rejected"],
@@ -1022,6 +1073,4 @@ export const Constants = {
       user_status: ["pending", "active", "rejected", "inactive"],
     },
   },
-} as const;
-
-export type UserRole = Database["public"]["Enums"]["user_role"];
+} as const
